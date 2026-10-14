@@ -1,0 +1,94 @@
+```yaml
+name: Build MarioKartPSP
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build PSP EBOOT
+    runs-on: ubuntu-latest
+    container:
+      image: pspdev/pspdev:latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check required project files
+        run: |
+          set -eu
+          test -f main.c
+          test -f CMakeLists.txt
+          test -f Makefile
+          test -f char_models.h
+          test -f kart_models.h
+          test -f assets_pack.zip
+          test -f README.md
+
+      - name: Verify assets archive
+        run: |
+          set -eu
+          unzip -t assets_pack.zip
+          unzip -Z1 assets_pack.zip > /tmp/assets-list.txt
+          grep -q 'assets/textures/wario_model_face.png' /tmp/assets-list.txt
+          grep -q 'assets/textures/toad_model_face.png' /tmp/assets-list.txt
+          grep -q 'assets/textures/peach_model_face.png' /tmp/assets-list.txt
+
+      - name: Configure project
+        run: |
+          set -eu
+          mkdir -p build
+          cd build
+          cmake ..
+
+      - name: Compile project
+        run: |
+          set -eu
+          cmake --build build --parallel 2
+
+      - name: Locate EBOOT.PBP
+        run: |
+          set -eu
+          EBOOT_PATH="$(find build -type f -iname 'EBOOT.PBP' -print -quit)"
+          if [ -z "$EBOOT_PATH" ]; then
+            echo "::error::EBOOT.PBP was not generated."
+            find build -maxdepth 4 -type f -print
+            exit 1
+          fi
+          mkdir -p release/PSP/GAME/MarioKartPSP
+          cp "$EBOOT_PATH" release/PSP/GAME/MarioKartPSP/EBOOT.PBP
+
+      - name: Package game assets
+        run: |
+          set -eu
+          mkdir -p release/PSP/GAME/MarioKartPSP/assets
+          unzip -o assets_pack.zip -d release/PSP/GAME/MarioKartPSP
+          test -f release/PSP/GAME/MarioKartPSP/EBOOT.PBP
+
+      - name: Verify release
+        run: |
+          set -eu
+          test -s release/PSP/GAME/MarioKartPSP/EBOOT.PBP
+          test -f release/PSP/GAME/MarioKartPSP/assets/textures/tyre.png
+          test -f release/PSP/GAME/MarioKartPSP/assets/audio/race_music.wav
+          cd release
+          zip -qr ../MarioKartPSP-PSP.zip PSP
+          cd ..
+          unzip -t MarioKartPSP-PSP.zip
+
+      - name: Upload PSP package
+        uses: actions/upload-artifact@v4
+        with:
+          name: MarioKartPSP-PSP
+          path: MarioKartPSP-PSP.zip
+          if-no-files-found: error
+          retention-days: 14
+```
